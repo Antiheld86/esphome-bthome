@@ -388,7 +388,11 @@ void BTHome::build_advertisement_data_() {
     if (!this->measurements_.empty()) {
       size_t start_idx = this->current_sensor_index_;
       size_t count = this->measurements_.size();
-      size_t added = 0;
+      // Next advertisement starts at the first measurement that did not fit. If everything
+      // fit, start again at index 0 so the object order stays stable (configuration order).
+      // Measurements without a state are skipped and must not shift the rotation, otherwise
+      // a packet sent before all sensors have values permanently reorders all later packets.
+      size_t next_idx = 0;
 
       // Rotate through measurements starting from current index
       for (size_t i = 0; i < count; i++) {
@@ -400,17 +404,15 @@ void BTHome::build_advertisement_data_() {
 
         // Check if measurement fits: object_id (1 byte) + data_bytes
         size_t encoded_size = 1 + measurement.data_bytes;
-        if (pos + encoded_size > MAX_BLE_ADVERTISEMENT_SIZE)
+        if (pos + encoded_size > MAX_BLE_ADVERTISEMENT_SIZE) {
+          next_idx = idx;
           break;
+        }
 
         pos += this->encode_measurement_(this->adv_data_ + pos, MAX_BLE_ADVERTISEMENT_SIZE - pos, measurement);
-        added++;
       }
 
-      // Advance index for next advertisement (rotate through all sensors)
-      if (added > 0 && added < count) {
-        this->current_sensor_index_ = (start_idx + added) % count;
-      }
+      this->current_sensor_index_ = next_idx;
     }
 #endif
 
@@ -418,7 +420,7 @@ void BTHome::build_advertisement_data_() {
     if (!this->binary_measurements_.empty()) {
       size_t start_idx = this->current_binary_index_;
       size_t count = this->binary_measurements_.size();
-      size_t added = 0;
+      size_t next_idx = 0;  // same rotation rule as for sensors above
 
       // Rotate through binary measurements starting from current index
       for (size_t i = 0; i < count; i++) {
@@ -428,18 +430,16 @@ void BTHome::build_advertisement_data_() {
         if (!measurement.sensor->has_state())
           continue;
 
-        if (pos + 2 > MAX_BLE_ADVERTISEMENT_SIZE)
+        if (pos + 2 > MAX_BLE_ADVERTISEMENT_SIZE) {
+          next_idx = idx;
           break;
+        }
 
         pos += this->encode_binary_measurement_(this->adv_data_ + pos, MAX_BLE_ADVERTISEMENT_SIZE - pos,
                                                  measurement.object_id, measurement.sensor->state);
-        added++;
       }
 
-      // Advance index for next advertisement
-      if (added > 0 && added < count) {
-        this->current_binary_index_ = (start_idx + added) % count;
-      }
+      this->current_binary_index_ = next_idx;
     }
 #endif
   }
